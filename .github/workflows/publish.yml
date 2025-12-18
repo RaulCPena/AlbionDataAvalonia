@@ -1,4 +1,17 @@
 # Automated build and release workflow for AlbionDataAvalonia
+#
+# This workflow handles cross-platform builds and releases for Windows, Linux, and macOS.
+# The macOS job includes code signing and Apple notarization to ensure the app is trusted
+# by macOS Gatekeeper and can run on users' machines without security warnings.
+#
+# REQUIRED GITHUB SECRETS:
+#   - DEVELOPER_ID_CERT_BASE64: Developer ID Application certificate (base64-encoded .p12)
+#   - DEVELOPER_ID_CERT_PASSWORD: Password for the .p12 certificate
+#   - DEVELOPER_ID_IDENTITY: Certificate identity (e.g., "Developer ID Application: Name (TEAM_ID)")
+#   - KEYCHAIN_PASSWORD: Temporary keychain password used during the build
+#   - AC_API_KEY_ID: App Store Connect API key ID for notarization
+#   - AC_API_ISSUER_ID: App Store Connect issuer ID (team ID)
+#   - AC_API_KEY_P8_BASE64: App Store Connect API private key (base64-encoded .p8)
 name: Build and Release
 
 on:
@@ -31,12 +44,16 @@ jobs:
           DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          # Decode and import the Developer ID certificate to a temporary keychain.
+          # This allows codesign to access the certificate during the build without
+          # requiring interactive prompts or storing the cert in the system keychain.
           echo "$DEVELOPER_ID_CERT_BASE64" | base64 --decode > dev_id.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -lut 21600 build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security import dev_id.p12 -k build.keychain -P "$DEVELOPER_ID_CERT_PASSWORD" -T /usr/bin/codesign
-          # Allow codesign and Xcode tools to access the key without UI prompts
+          # Allow codesign and Xcode tools to access the key without UI prompts.
+          # The partition list must include apple-tool and apple to work in CI/CD.
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security list-keychains -d user -s build.keychain login.keychain
@@ -46,8 +63,15 @@ jobs:
         env:
           DEVELOPER_ID_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
         run: |
+          # Code sign the entire app bundle with the Developer ID certificate.
+          # Flags:
+          #   --deep: Signs all nested frameworks and dylibs
+          #   --options runtime: Hardened runtime to support notarization
+          #   --entitlements: Apply security entitlements required for packet capture (libpcap)
+          #   --timestamp: Include secure timestamp from Apple (required for notarization)
           APP_DIR="./AlbionDataAvalonia.Desktop.MacOS/bin/Release/net10.0/osx-arm64/publish/AFMDataClient_MacOS64.app"
           codesign --force --deep --options runtime --entitlements packaging/macos/entitlements.plist --timestamp -s "$DEVELOPER_ID_IDENTITY" "$APP_DIR"
+          # Verify the signature (|| true to continue even if there are warnings)
           codesign -dv --verbose=4 "$APP_DIR" || true
 
       - name: Zip app for notarization
@@ -62,6 +86,8 @@ jobs:
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
           AC_API_KEY_P8_BASE64: ${{ secrets.AC_API_KEY_P8_BASE64 }}
         run: |
+          # Decode the App Store Connect API key and submit the app to Apple for notarization.
+          # This is a non-blocking step; we return a RequestUUID and then poll for completion.
           echo "$AC_API_KEY_P8_BASE64" | base64 --decode > AuthKey.p8
           ZIP_PATH="./AlbionDataAvalonia.Desktop.MacOS/bin/Release/net10.0/osx-arm64/publish/AFMDataClient_MacOS64.app.zip"
           echo "Submitting to Apple notarization..."
@@ -101,6 +127,9 @@ jobs:
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
         run: |
+          # Poll Apple's notarization service every 30 seconds (up to 60 attempts = ~30 min).
+          # Notarization typically completes in 10-30 minutes; longer if there are issues.
+          # We fail immediately if the submission is "invalid"; otherwise we wait for "accepted".
           ATTEMPTS=60
           SLEEP_SECS=30
           STATUS=""
@@ -131,6 +160,9 @@ jobs:
 
       - name: Staple and validate
         run: |
+          # Staple the notarization ticket to the app bundle.
+          # This embeds the ticket so the app can be verified offline without network access to Apple's servers.
+          # The spctl command validates the signature and ticket (|| true to ignore any warnings).
           APP_DIR="./AlbionDataAvalonia.Desktop.MacOS/bin/Release/net10.0/osx-arm64/publish/AFMDataClient_MacOS64.app"
           xcrun stapler staple "$APP_DIR"
           spctl -a -vv "$APP_DIR" || true
