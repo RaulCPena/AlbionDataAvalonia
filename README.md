@@ -135,4 +135,3 @@ This software was developed by [JP CodeCraft](https://jpcodecraft.com/), the dev
 ## 📊 Download Statistics
 
 View detailed download statistics [here](https://tooomm.github.io/github-release-stats/?username=jpcodecraft&repository=AlbionDataAvalonia).
-# Release trigger
