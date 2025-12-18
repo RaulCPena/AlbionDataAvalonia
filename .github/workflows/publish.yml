@@ -264,6 +264,7 @@ jobs:
           options: /O+
 
       - name: Create Tag
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true') }}
         id: create_tag
         run: |
           git tag v.${{ env.VERSION }}
@@ -276,20 +277,25 @@ jobs:
         run: |
           NOTES=$(printf "Changes since last release:\n%s" "${{ env.COMMIT_LOG }}")
           DRAFT_ARG=""
+          TAG="v.${{ env.VERSION }}"
+          TITLE="Albion Free Market Data Client v.${{ env.VERSION }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.draft }}" = "true" ]; then
             DRAFT_ARG="--draft"
+            TAG="v.${{ env.VERSION }}-draft-${GITHUB_RUN_ID}"
+            TITLE="$TITLE (draft ${GITHUB_RUN_ID})"
           fi
-          gh release create "v.${{ env.VERSION }}" \
+          gh release create "$TAG" \
             "C:/Users/runneradmin/Documents/Inno Setup Output/AFMDataClientSetup_v_${{ env.VERSION }}.exe#AFMDataClientSetup_v_${{ env.VERSION }}.exe" \
             "./AlbionDataAvalonia.Desktop.Linux/bin/Release/net10.0/linux-x64/publish/AFMDataClient_Linux64#AFMDataClient_Linux64" \
             "./AlbionDataAvalonia.Desktop.Linux/bin/Release/net10.0/linux-x64/publish/AFMDataClient_Linux64_Installer.sh#AFMDataClient_Linux64_Installer.sh" \
             "./AlbionDataAvalonia.Desktop.Linux/bin/Release/net10.0/linux-x64/publish/AFMDataClient_Linux64_Uninstaller.sh#AFMDataClient_Linux64_Uninstaller.sh" \
             "./AlbionDataAvalonia.Desktop.MacOS/bin/Release/net10.0/osx-arm64/publish/AFMDataClient_MacOS64.app.zip#AFMDataClient_MacOS64.app.zip" \
-            --title "Albion Free Market Data Client v.${{ env.VERSION }}" \
+            --title "$TITLE" \
             --notes "$NOTES" $DRAFT_ARG
         shell: bash
 
       - name: Create LatestVersion.json
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true') }}
         run: |
           $version = "${{ env.VERSION }}"
           $json = @{ version = $version } | ConvertTo-Json
@@ -297,6 +303,7 @@ jobs:
         shell: pwsh
 
       - name: Commit and push changes
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true') }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
