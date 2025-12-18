@@ -1,4 +1,5 @@
 # Automated build and release workflow for AlbionDataAvalonia
+# Triggers: manual dispatch or push to main when workflow file changes
 #
 # This workflow handles cross-platform builds and releases for Windows, Linux, and macOS.
 # The macOS job includes code signing and Apple notarization to ensure the app is trusted
